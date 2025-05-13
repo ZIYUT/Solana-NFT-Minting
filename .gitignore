@@ -1,0 +1,53 @@
+# 依赖目录
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# 编译输出和缓存
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+.cache/
+
+# Solana特定文件
+.anchor/
+target/
+**/*.rs.bk
+keypair.json
+wallet.json
+*.keypair
+
+# 环境变量
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.mainnet
+.env.devnet
+.env.testnet
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 编辑器文件
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 操作系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
