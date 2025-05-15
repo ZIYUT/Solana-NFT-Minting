@@ -4,7 +4,7 @@
   "description": "简单的Solana NFT铸造工具",
   "main": "index.js",
   "scripts": {
-    "mint": "npx esrun mint-nft.ts"
+    "mint": "ts-node mint-nft.ts"
   },
   "keywords": [],
   "author": "",
@@ -13,9 +13,17 @@
     "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
     "@metaplex-foundation/umi-bundle-defaults": "^0.9.2",
     "@solana-developers/helpers": "^2.3.0",
-    "@solana/web3.js": "^1.87.0"
+    "@solana/web3.js": "^1.87.0",
+    "axios": "^1.9.0",
+    "dotenv": "^16.5.0",
+    "form-data": "^4.0.2"
   },
   "devDependencies": {
-    "esrun": "^0.0.1"
+    "esbuild": "^0.25.4",
+    "esbuild-runner": "^2.2.2",
+    "esrun": "^0.0.1",
+    "ts-node": "^10.9.1",
+    "tsx": "^4.19.4",
+    "typescript": "^5.0.0"
   }
 }
