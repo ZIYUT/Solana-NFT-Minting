@@ -9,6 +9,7 @@
 - 在Solana devnet上铸造NFT
 - 支持自定义NFT名称和描述
 - 文件大小限制：100MB
+- 自动端口分配（3001-3010）
 
 ## 环境变量配置
 
@@ -22,7 +23,7 @@ PINATA_SECRET_KEY=your_pinata_secret_key
 # Solana配置（用于NFT铸造）
 SOLANA_PRIVATE_KEY=your_solana_private_key
 
-# 服务器配置
+# 服务器配置（可选，默认3001-3010）
 PORT=3001
 ```
 
@@ -50,16 +51,46 @@ npm install
 2. 启动服务：
 
 ```bash
-# 开发模式
+# 开发模式（支持热重载）
 npm run dev
 
 # 生产模式
 npm start
 ```
 
-## API使用示例
+## API端点
 
-### 铸造NFT
+### 1. 服务信息 (GET /)
+
+获取服务基本信息：
+
+```bash
+curl http://localhost:3001/
+```
+
+响应：
+
+```json
+{
+  "service": "NFT Minting Backend Service",
+  "version": "1.0.0",
+  "endpoints": {
+    "mint": {
+      "path": "/api/mint-nft",
+      "method": "POST",
+      "description": "上传视频并铸造NFT"
+    },
+    "health": {
+      "path": "/health",
+      "method": "GET",
+      "description": "服务健康检查"
+    }
+  },
+  "documentation": "请参考 README.md 获取详细使用说明"
+}
+```
+
+### 2. 铸造NFT (POST /api/mint-nft)
 
 ```javascript
 // 前端代码示例
@@ -68,6 +99,7 @@ formData.append("video", videoFile);
 formData.append("name", "My Video NFT");
 formData.append("description", "This is my video NFT");
 
+// 注意：端口号可能会变化，请使用实际运行的端口
 const response = await fetch("http://localhost:3001/api/mint-nft", {
   method: "POST",
   body: formData,
@@ -75,8 +107,6 @@ const response = await fetch("http://localhost:3001/api/mint-nft", {
 
 const result = await response.json();
 ```
-
-### API响应格式
 
 成功响应：
 
@@ -107,25 +137,25 @@ const result = await response.json();
 }
 ```
 
-## 注意事项
-
-1. 确保上传的视频文件大小不超过100MB
-2. 确保Solana钱包中有足够的SOL支付gas费
-3. 服务默认使用Solana devnet网络
-4. 上传到IPFS的文件会永久保存，请确保内容符合相关规定
-
-## 健康检查
-
-可以通过访问 `/health` 端点检查服务状态：
+### 3. 健康检查 (GET /health)
 
 ```bash
 curl http://localhost:3001/health
 ```
 
-预期响应：
+响应：
 
 ```json
 {
   "status": "ok"
 }
 ```
+
+## 注意事项
+
+1. 确保上传的视频文件大小不超过100MB
+2. 确保Solana钱包中有足够的SOL支付gas费
+3. 服务默认使用Solana devnet网络
+4. 上传到IPFS的文件会永久保存，请确保内容符合相关规定
+5. 服务器会自动在3001-3010之间寻找可用端口
+6. 开发模式支持代码热重载，生产模式性能更好
