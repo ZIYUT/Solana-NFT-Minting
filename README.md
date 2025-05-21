@@ -1,51 +1,142 @@
-# Solana NFT Minting Tool
+# Solana NFT 铸造服务
 
-This is a simple Solana NFT minting tool that allows you to create NFTs on the Solana blockchain's DevNet test network.
+这是一个基于 Solana 区块链的 NFT 铸造服务，支持视频 NFT 的铸造、转移和版税设置。
 
-## Your Minted NFT
-- **NFT Address**: [D4udVQBZLp4EG8bNhMNiYW3HXh1K9e7ggY9k9jRnUSVP](https://explorer.solana.com/address/D4udVQBZLp4EG8bNhMNiYW3HXh1K9e7ggY9k9jRnUSVP/transfers?cluster=devnet)
-- **Minter Wallet**: CEqRKCaGhXhPbDDhxKFjMiq6ta8owDSECWGa8iujQkvg
+## 功能特点
 
-## Tool Usage Instructions
-Please refer to the following file for detailed usage guidelines:
+- 视频 NFT 铸造
+- NFT 转移
+- 版税设置（0-100%）
+- IPFS 存储支持
+- 文件大小限制（最大 100MB）
 
-[GUIDE.md](GUIDE.md)
+## 环境要求
 
-### Solana NFT Minting Tool Usage Guide
-This is a simple tool to help you mint NFTs on the Solana DevNet testnet.
+- Node.js 14+
+- Solana CLI
+- 足够的 SOL 代币（建议至少 0.1 SOL）
 
-#### Prerequisites
-1. **Install Dependencies**
-2. **Configure Environment Variables**
-   Create a `.env` file and add the following content:
-   ```
-   # Pinata API Credentials
-   PINATA_API_KEY=your_PINATA_API_KEY
-   PINATA_SECRET_KEY=your_PINATA_SECRET_KEY
+## 安装步骤
 
-   # Solana Wallet Private Key (Optional)
-   SOLANA_PRIVATE_KEY=your_SOLANA_PRIVATE_KEY
-   ```
-   **Note**: If `SOLANA_PRIVATE_KEY` is not provided, the system will automatically create a temporary wallet.
+1. 克隆项目并安装依赖：
 
-#### Usage Workflow
-**Step 1: Upload Image to IPFS**
 ```bash
-node upload-to-ipfs.js image_path.png "NFT Name" "NFT Description"
+git clone [项目地址]
+cd NFT-minting
+npm install
 ```
 
-**Step 2: Mint NFT**
-Using the IPFS metadata URI returned from the previous step:
-```bash
-npx tsx mint-nft.ts https://gateway.pinata.cloud/ipfs/your_metadata_hash "NFT Name"
+2. 配置环境变量：
+   创建 `.env` 文件并添加以下配置：
+
+```
+SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_PRIVATE_KEY=你的私钥
+PINATA_API_KEY=你的Pinata API密钥
+PINATA_SECRET_KEY=你的Pinata密钥
 ```
 
-#### View Your NFT
-After successful minting, you will see output similar to the following:
+## API 接口说明
 
-Click the link to view your NFT on the Solana blockchain explorer.
+### 1. 铸造 NFT
 
-#### Important Notes
-- This tool uses the Solana DevNet testnet; minted NFTs will not appear on the mainnet.
-- NFTs minted on DevNet have no real-world value and are for testing purposes only.
-- To mint real NFTs on the mainnet, modify the network settings in the code and use real SOL.
+**请求方式**：POST `/mint-nft`
+
+**参数**：
+
+- `video`: 视频文件（必需）
+- `name`: NFT 名称（必需）
+- `description`: NFT 描述（可选）
+- `sellerFeeBasisPoints`: 版税比例（可选，0-10000，默认 0）
+
+**示例**：
+
+```bash
+curl -X POST \
+  -F "video=@/path/to/your/video.mp4" \
+  -F "name=我的NFT" \
+  -F "description=这是一个测试NFT" \
+  -F "sellerFeeBasisPoints=500" \
+  http://localhost:3000/mint-nft
+```
+
+### 2. 转移 NFT
+
+**请求方式**：POST `/transfer-nft`
+
+**参数**：
+
+- `nftAddress`: NFT 地址（必需）
+- `toWalletAddress`: 接收方钱包地址（必需）
+
+**示例**：
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nftAddress": "NFT地址",
+    "toWalletAddress": "接收方钱包地址"
+  }' \
+  http://localhost:3000/transfer-nft
+```
+
+### 3. 更新 NFT 版税
+
+**请求方式**：POST `/update-nft-royalty`
+
+**参数**：
+
+- `nftAddress`: NFT 地址（必需）
+- `sellerFeeBasisPoints`: 新版税比例（必需，0-10000）
+
+**示例**：
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nftAddress": "NFT地址",
+    "sellerFeeBasisPoints": 1000
+  }' \
+  http://localhost:3000/update-nft-royalty
+```
+
+## 版税说明
+
+- 版税比例使用 basis points 表示
+- 1 basis point = 0.01%
+- 例如：
+  - 500 = 5%
+  - 1000 = 10%
+  - 2500 = 25%
+  - 10000 = 100%
+
+## 注意事项
+
+1. 确保钱包中有足够的 SOL 支付交易费用（建议至少 0.1 SOL）
+2. 视频文件大小限制为 100MB
+3. 版税比例必须在 0-100% 之间
+4. 只有 NFT 所有者才能更新版税设置
+5. 所有操作都在 Solana devnet 上进行
+
+## 错误处理
+
+服务会返回详细的错误信息，包括：
+
+- 文件大小超限
+- 钱包余额不足
+- 无效的钱包地址
+- 无效的版税比例
+- 交易失败原因
+
+## 查看交易
+
+所有交易都可以在 Solana Explorer 上查看：
+
+- Devnet: https://explorer.solana.com/?cluster=devnet
+- Mainnet: https://explorer.solana.com/
+
+## 许可证
+
+MIT License
