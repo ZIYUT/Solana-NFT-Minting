@@ -9,13 +9,14 @@ const {
 const {
   createUmi,
 } = require("@metaplex-foundation/umi-bundle-defaults");
-const { Connection, LAMPORTS_PER_SOL, clusterApiUrl, Keypair } = require("@solana/web3.js");
+const { Connection, LAMPORTS_PER_SOL, clusterApiUrl, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } = require("@solana/web3.js");
 const {
   generateSigner,
   keypairIdentity,
   percentAmount,
 } = require("@metaplex-foundation/umi");
 const bs58 = require('bs58');
+const { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, createTransferInstruction } = require('@solana/spl-token');
 
 // 从环境变量获取配置
 const PINATA_API_KEY = process.env.PINATA_API_KEY;
@@ -154,7 +155,52 @@ async function mintNFT(metadataUri, name) {
   };
 }
 
+// NFT转账功能
+async function transferNFT(mintAddress, toAddress) {
+  // 连接到Solana网络（devnet）
+  const connection = new Connection(clusterApiUrl("devnet"));
+  const payer = await getKeypair();
+  const fromWallet = payer;
+  const mint = new PublicKey(mintAddress);
+  const toWallet = new PublicKey(toAddress);
+
+  // 获取发送方和接收方的ATA
+  const fromTokenAccount = await getAssociatedTokenAddress(mint, fromWallet.publicKey);
+  const toTokenAccount = await getAssociatedTokenAddress(mint, toWallet);
+
+  const instructions = [];
+
+  // 检查接收方ATA是否存在，不存在则创建
+  const toTokenAccountInfo = await connection.getAccountInfo(toTokenAccount);
+  if (!toTokenAccountInfo) {
+    instructions.push(
+      createAssociatedTokenAccountInstruction(
+        fromWallet.publicKey,
+        toTokenAccount,
+        toWallet,
+        mint
+      )
+    );
+  }
+
+  // 构造转账指令（NFT数量为1）
+  instructions.push(
+    createTransferInstruction(
+      fromTokenAccount,
+      toTokenAccount,
+      fromWallet.publicKey,
+      1 // NFT数量为1
+    )
+  );
+
+  // 组装并发送交易
+  const tx = new Transaction().add(...instructions);
+  const signature = await sendAndConfirmTransaction(connection, tx, [fromWallet]);
+  return { signature };
+}
+
 module.exports = {
   uploadToIPFS,
-  mintNFT
+  mintNFT,
+  transferNFT
 }; 

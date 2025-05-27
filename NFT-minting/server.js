@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
-const { uploadToIPFS, mintNFT } = require('./services/nftService');
+const { uploadToIPFS, mintNFT, transferNFT } = require('./services/nftService');
+const { storeNFTData, getNFTById, deleteNFTById, updateRoyaltyById } = require('./services/supabaseService');
 require('dotenv').config();
 
 const app = express();
@@ -42,16 +43,32 @@ app.post('/api/mint-nft', upload.single('video'), async (req, res) => {
       return res.status(400).json({ error: '请上传视频文件' });
     }
 
-    const { name, description } = req.body;
-    
+    const { title, description, royalty_percentage, author_id, video_id } = req.body;
+    if (!title || !description || !royalty_percentage || !author_id || !video_id) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
+
     // 上传到IPFS
     const ipfsResult = await uploadToIPFS(req.file.path, {
-      name: name || 'My NFT',
-      description: description || '这是一个视频NFT'
+      name: title,
+      description: description
     });
 
     // 铸造NFT
-    const mintResult = await mintNFT(ipfsResult.metadataUrl, name);
+    const mintResult = await mintNFT(ipfsResult.metadataUrl, title);
+
+    // 组装要存储到Supabase的数据
+    const nftData = {
+      title,
+      description,
+      royalty_percentage: Number(royalty_percentage),
+      author_id,
+      owner_id: author_id, // mint时owner和author一致
+      metadata_url: ipfsResult.metadataUrl,
+      video_id
+    };
+
+    const storedNFT = await storeNFTData(nftData);
 
     // 清理上传的文件
     fs.unlinkSync(req.file.path);
@@ -60,11 +77,70 @@ app.post('/api/mint-nft', upload.single('video'), async (req, res) => {
       success: true,
       data: {
         ipfs: ipfsResult,
-        nft: mintResult
+        nft: mintResult,
+        database: storedNFT
       }
     });
   } catch (error) {
     console.error('Mint NFT失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// NFT转账API
+app.post('/api/transfer-nft', async (req, res) => {
+  try {
+    const { id, to_wallet_address } = req.body;
+    if (!id || !to_wallet_address) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
+
+    // 查询NFT信息
+    const nft = await getNFTById(id);
+    if (!nft || !nft.metadata_url) {
+      return res.status(404).json({ error: '未找到对应NFT' });
+    }
+    if (!nft.nft_address && !nft.mint_address) {
+      return res.status(400).json({ error: 'NFT没有链上地址' });
+    }
+    const mintAddress = nft.nft_address || nft.mint_address;
+
+    // 执行链上转账
+    const transferResult = await transferNFT(mintAddress, to_wallet_address);
+
+    // 删除数据库记录
+    await deleteNFTById(id);
+
+    res.json({
+      success: true,
+      signature: transferResult.signature
+    });
+  } catch (error) {
+    console.error('Transfer NFT失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 修改NFT版税API
+app.post('/api/update-royalty', async (req, res) => {
+  try {
+    const { id, royalty_percentage } = req.body;
+    if (!id || royalty_percentage === undefined) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
+    const updated = await updateRoyaltyById(id, Number(royalty_percentage));
+    res.json({
+      success: true,
+      data: updated
+    });
+  } catch (error) {
+    console.error('修改NFT版税失败:', error);
     res.status(500).json({
       success: false,
       error: error.message
