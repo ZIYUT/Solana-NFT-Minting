@@ -6,29 +6,20 @@ const router = express.Router();
 // Verify payment endpoint
 router.post('/verify-payment', async (req: Request, res: Response) => {
     try {
-        const { fromAddress, toAddress, expectedAmount, timeWindowMinutes } = req.body;
-        
-        if (!fromAddress || !toAddress || !expectedAmount) {
+        const { fromAddress, toAddress, timeWindowMinutes } = req.body;
+        if (!fromAddress || !toAddress) {
             res.status(400).json({
-                error: 'Missing required fields: fromAddress, toAddress, expectedAmount'
+                error: 'Missing required fields: fromAddress, toAddress'
             });
             return;
         }
-        
-        console.log('Payment verification request:', {
-            fromAddress,
-            toAddress,
-            expectedAmount,
-            timeWindowMinutes
-        });
-        
+        const FIXED_AMOUNT = 0.05;
         const result = await verifyPayment({
             fromAddress,
             toAddress,
-            expectedAmount: parseFloat(expectedAmount),
+            expectedAmount: FIXED_AMOUNT,
             timeWindowMinutes: timeWindowMinutes || 10
         });
-        
         res.json(result);
     } catch (error) {
         console.error('Error in payment verification:', error);
@@ -87,5 +78,7 @@ router.get('/backend-wallet', async (req: Request, res: Response) => {
         });
     }
 });
+
+
 
 export default router;

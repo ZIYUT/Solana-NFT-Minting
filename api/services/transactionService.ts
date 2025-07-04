@@ -12,6 +12,7 @@ interface TransactionNftData {
   videoBuffer?: Buffer; // 可选，用于 Vercel serverless
   creatorAddress: string;
   royalty?: number; // 新增
+  ipfsUrl?: string; // 新增
 }
 
 interface TransactionData {
@@ -45,7 +46,7 @@ const TRANSACTION_TIMEOUT_MINUTES = parseInt(process.env.TRANSACTION_TIMEOUT_MIN
  * 创建新的交易
  */
 export async function createTransaction(
-  nftData: TransactionNftData,
+  nftData: Omit<TransactionNftData, 'videoBuffer' | 'videoPath'>, // Omit video fields
   creatorAddress: string
 ): Promise<{
   transactionId: string;
@@ -80,7 +81,7 @@ export async function createTransaction(
   // 存储交易数据
   const transaction: TransactionData = {
     id: transactionId,
-    nftData,
+    nftData: { ...nftData }, // videoBuffer and videoPath are not included
     creatorAddress,
     amount: MINT_FEE_SOL,
     status: 'pending',
@@ -128,21 +129,23 @@ export async function checkTransactionStatus(transactionId: string): Promise<{
   
   // 如果状态是pending，检查支付
   if (transaction.status === 'pending') {
-    const paymentVerified = await verifyPayment(
-      transaction.creatorAddress,
-      BACKEND_WALLET_ADDRESS!,
-      transaction.amount,
-      transaction.id
-    );
+    // 使用paymentService中的verifyPayment函数
+    const { verifyPayment: verifyPaymentService } = await import('../services/paymentService');
+    const paymentVerified = await verifyPaymentService({
+      fromAddress: transaction.creatorAddress,
+      toAddress: BACKEND_WALLET_ADDRESS!,
+      expectedAmount: transaction.amount,
+      createdAt: transaction.createdAt.getTime()
+    });
     
     if (paymentVerified.verified) {
       transaction.status = 'paid';
-      transaction.paymentTxSignature = paymentVerified.signature;
+      transaction.paymentTxSignature = paymentVerified.transactionSignature;
       
-      // 开始铸造NFT，并传递整个交易对象
-      startMinting(transaction);
+      // 不在这里开始铸造，等待视频上传完成后再开始
+      // startMinting(transaction);
       
-      return { status: 'paid', message: 'Payment verified, minting started' };
+      return { status: 'paid', message: 'Payment verified, waiting for video upload' };
     }
   }
   
@@ -160,92 +163,56 @@ export async function checkTransactionStatus(transactionId: string): Promise<{
 /**
  * 获取交易二维码
  */
+/**
+ * 获取交易详情
+ */
+/**
+ * 更新交易，附加上传的视频信息
+ */
+export async function updateTransactionWithVideo(
+  transactionId: string,
+  ipfsUrl: string,
+  videoBuffer: Buffer,
+  videoPath: string
+): Promise<TransactionData | null> {
+  const transaction = transactions.get(transactionId);
+
+  if (!transaction || transaction.status !== 'paid') {
+    // 只能更新已支付但还未处理视频的交易
+    return null;
+  }
+
+  // 更新交易数据
+  transaction.nftData.ipfsUrl = ipfsUrl;
+  transaction.nftData.videoBuffer = videoBuffer;
+  transaction.nftData.videoPath = videoPath;
+  
+  // 视频上传完成后，开始铸造NFT
+  startMinting(transaction);
+
+  transactions.set(transactionId, transaction);
+
+  return transaction;
+}
+
+export function getTransactionDetails(transactionId: string): TransactionData | undefined {
+  return transactions.get(transactionId);
+}
+
+/**
+ * 获取交易二维码
+ */
 export function getTransactionQRCode(transactionId: string): string | null {
   const transaction = transactions.get(transactionId);
   return transaction?.qrCodeData || null;
 }
 
-/**
- * 验证支付
- */
-async function verifyPayment(
-  fromAddress: string,
-  toAddress: string,
-  expectedAmount: number,
-  reference?: string
-): Promise<{ verified: boolean; signature?: string }> {
-  try {
-    const fromPubkey = new PublicKey(fromAddress);
-    const toPubkey = new PublicKey(toAddress);
-    
-    // 获取最近的交易
-    const signatures = await connection.getSignaturesForAddress(
-      toPubkey,
-      { limit: 50 }
-    );
-    
-    // 检查最近5分钟的交易
-    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    
-    for (const signatureInfo of signatures) {
-      if (!signatureInfo.blockTime) continue;
-      
-      const txTime = signatureInfo.blockTime * 1000;
-      if (txTime < fiveMinutesAgo) continue;
-      
-      try {
-        const transaction = await connection.getTransaction(
-          signatureInfo.signature,
-          { commitment: 'confirmed' }
-        );
-        
-        if (!transaction?.meta) continue;
-        
-        // 检查交易是否成功
-        if (transaction.meta.err) continue;
-        
-        // 检查转账金额和地址
-        const preBalances = transaction.meta.preBalances;
-        const postBalances = transaction.meta.postBalances;
-        const accountKeys = transaction.transaction.message.accountKeys;
-        
-        let fromIndex = -1;
-        let toIndex = -1;
-        
-        for (let i = 0; i < accountKeys.length; i++) {
-          if (accountKeys[i].equals(fromPubkey)) fromIndex = i;
-          if (accountKeys[i].equals(toPubkey)) toIndex = i;
-        }
-        
-        if (fromIndex === -1 || toIndex === -1) continue;
-        
-        const transferAmount = (preBalances[fromIndex] - postBalances[fromIndex]) / LAMPORTS_PER_SOL;
-        const receivedAmount = (postBalances[toIndex] - preBalances[toIndex]) / LAMPORTS_PER_SOL;
-        
-        // 检查金额是否匹配（允许小的误差）
-        if (Math.abs(receivedAmount - expectedAmount) < 0.001) {
-          return {
-            verified: true,
-            signature: signatureInfo.signature
-          };
-        }
-      } catch (error) {
-        console.error('Error checking transaction:', error);
-        continue;
-      }
-    }
-    
-    return { verified: false };
-  } catch (error) {
-    console.error('Error verifying payment:', error);
-    return { verified: false };
-  }
-}
+
 
 /**
  * 开始铸造NFT
  */
-async function startMinting(transaction: TransactionData) {
+export async function startMinting(transaction: TransactionData) {
   if (!transaction || !transaction.nftData.videoBuffer) {
     console.error('Minting failed: Transaction data or video buffer is missing.');
     if (transaction) {

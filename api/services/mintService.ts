@@ -28,7 +28,6 @@ import {
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
-import pinataSDK from '@pinata/sdk';
 
 dotenv.config();
 
@@ -41,49 +40,21 @@ const getKeypairFromPrivateKey = (privateKeyString: string): Keypair => {
     return Keypair.fromSecretKey(secretKey);
 };
 
-const pinataApiKey = process.env.PINATA_API_KEY!;
-const pinataSecretApiKey = process.env.PINATA_SECRET_KEY!;
-const pinata = new pinataSDK(pinataApiKey, pinataSecretApiKey);
-
-async function uploadBufferToIpfs(buffer: Buffer, fileName: string): Promise<string> {
-    console.log(`Uploading ${fileName} from buffer to IPFS via Pinata.`);
-    try {
-        const { Readable } = require('stream');
-        const readableStream = Readable.from(buffer);
-        // It's important to set the path for the stream, so Pinata knows the filename
-        (readableStream as any).path = fileName;
-
-        const options = {
-            pinataMetadata: {
-                name: fileName,
-            },
-            pinataOptions: {
-                cidVersion: 0 as const,
-            },
-        };
-        const result = await pinata.pinFileToIPFS(readableStream, options);
-        console.log('Successfully uploaded to Pinata IPFS:', result.IpfsHash);
-        return `https://gateway.pinata.cloud/ipfs/${result.IpfsHash}`;
-    } catch (error) {
-        console.error('Error uploading to Pinata IPFS:', error);
-        throw error;
-    }
-}
-
 export interface MintNftParams {
-    videoBuffer: Buffer;
-    originalFileName: string;
-    mimetype: string;
+    videoBuffer?: Buffer;
+    originalFileName?: string;
+    mimetype?: string;
     name: string;
     symbol: string;
     description: string;
-    royaltyBasisPoints: number; // e.g., 500 for 5%
-    creatorPrivateKey: string; // This will be the private key string
-    creatorAddress?: string; // Optional: If provided, use this as the creator's public address
+    royaltyBasisPoints: number;
+    creatorPrivateKey: string;
+    creatorAddress?: string;
+    ipfsUrl?: string;
 }
 
 export const mintNft = async (params: MintNftParams): Promise<string> => {
-    const { videoBuffer, originalFileName, mimetype, name, symbol, description, royaltyBasisPoints, creatorPrivateKey, creatorAddress } = params;
+    const { videoBuffer, originalFileName, mimetype, name, symbol, description, royaltyBasisPoints, creatorPrivateKey, creatorAddress, ipfsUrl } = params;
 
     const creatorKeypair = getKeypairFromPrivateKey(creatorPrivateKey);
     const payer = creatorKeypair;
@@ -96,30 +67,26 @@ export const mintNft = async (params: MintNftParams): Promise<string> => {
     console.log('Creator public key (for metadata):', actualCreatorPublicKey.toBase58());
     console.log('New Mint public key:', mintKeypair.publicKey.toBase58());
 
-    // 1. Upload video and metadata to IPFS (or other storage)
-    const videoIpfsUrl = await uploadBufferToIpfs(videoBuffer, originalFileName);
-    console.log('Video uploaded to IPFS:', videoIpfsUrl);
+    // If ipfsUrl is provided, use it directly
+    let videoIpfsUrl = ipfsUrl;
 
-    const isVideo = mimetype.startsWith('video/');
+    const isVideo = true; // Assume always video for this use case
     const metadata = {
         name,
         symbol,
         description,
-        // For videos, the image should be a link to a thumbnail.
-        // If no thumbnail, setting it to the video URL is a common fallback.
-        // The '#t=0.1' fragment is not universally supported and can cause issues.
         image: videoIpfsUrl,
-        animation_url: isVideo ? videoIpfsUrl : undefined,
+        animation_url: videoIpfsUrl,
         external_url: "",
         attributes: [
-            { trait_type: "File Type", value: isVideo ? "Video" : "Image" }
+            { trait_type: "File Type", value: "Video" }
         ],
         properties: {
             files: [{
                 uri: videoIpfsUrl,
-                type: mimetype
+                type: mimetype || 'video/mp4'
             }],
-            category: isVideo ? "video" : "image",
+            category: "video",
             creators: [
                 { address: actualCreatorPublicKey.toBase58(), share: 100 }
             ]
@@ -129,8 +96,6 @@ export const mintNft = async (params: MintNftParams): Promise<string> => {
 
     const metadataBuffer = Buffer.from(JSON.stringify(metadata, null, 2));
     const metadataFileName = `${name.replace(/\s+/g, '_')}_metadata.json`;
-    const metadataIpfsUrl = await uploadBufferToIpfs(metadataBuffer, metadataFileName);
-    console.log('Metadata uploaded to IPFS:', metadataIpfsUrl);
 
     // 2. Create Mint Account and Initialize Mint
     const lamports = await getMinimumBalanceForRentExemptMint(connection);
@@ -190,7 +155,7 @@ export const mintNft = async (params: MintNftParams): Promise<string> => {
         data: {
             name,
             symbol,
-            uri: metadataIpfsUrl,
+            uri: metadataFileName,
             sellerFeeBasisPoints: royaltyBasisPoints,
             creators: creators,
             collection: null, // Set to null if not part of a collection

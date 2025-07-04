@@ -6,7 +6,10 @@ import {
   createTransaction,
   checkTransactionStatus,
   getTransactionQRCode,
-  getBackendWalletAddress
+  getBackendWalletAddress,
+  getTransactionDetails,
+  updateTransactionWithVideo,
+  startMinting
 } from '../services/transactionService';
 
 const router = express.Router();
@@ -40,6 +43,38 @@ const fileFilter = (req: express.Request, file: Express.Multer.File, cb: multer.
   }
 };
 
+router.post('/create-payment-order', async (req, res) => {
+    try {
+        const { fromAddress, name, symbol, description, royalty } = req.body;
+        if (!fromAddress || !name || !symbol || !description) {
+            res.status(400).json({ error: 'Missing required fields' });
+            return;
+        }
+
+        const nftData = {
+            name,
+            symbol,
+            description,
+            creatorAddress: fromAddress,
+            royalty: royalty || 0
+        };
+
+        const result = await createTransaction(nftData, fromAddress);
+
+        res.json({
+            orderId: result.transactionId,
+            backendWalletAddress: result.backendWalletAddress,
+            amount: result.amount,
+            expiresAt: result.expiresAt,
+            qrCodeDataUrl: result.qrCodeDataUrl
+        });
+
+    } catch (error) {
+        console.error('Error creating payment order:', error);
+        res.status(500).json({ error: 'Failed to create payment order', message: (error as Error).message });
+    }
+});
+
 const upload = multer({
   storage,
   limits: {
@@ -48,82 +83,30 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-/**
- * POST /api/transactions/create
- * 创建新的NFT铸造交易
- */
-router.post('/create', upload.single('file'), async (req: express.Request, res: express.Response) => {
+router.post('/create', upload.single('video'), async (req, res) => {
   try {
-    console.log('Transaction creation request received');
-    console.log('Request body:', req.body);
-    console.log('Request file:', req.file ? {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-      fieldname: req.file.fieldname
-    } : 'No file');
-
-    const { name, symbol, description, creatorAddress, royalty } = req.body;
+    const { transactionId, ipfsUrl } = req.body;
     const videoFile = req.file;
 
-    // 验证必需字段
-    if (!name || !symbol || !description || !creatorAddress) {
-      console.log('Missing required fields:', { name, symbol, description, creatorAddress });
-      res.status(400).json({
-        error: 'Missing required fields: name, symbol, description, creatorAddress'
-      });
+    if (!transactionId || !ipfsUrl || !videoFile) {
+      res.status(400).json({ error: 'Missing transactionId, ipfsUrl, or video file' });
       return;
     }
 
-    if (!videoFile) {
-      console.log('No file provided in request');
-      res.status(400).json({
-        error: 'File is required'
-      });
-      return;
+    const transaction = await updateTransactionWithVideo(transactionId, ipfsUrl, videoFile.buffer, videoFile.originalname);
+
+    if (!transaction) {
+        res.status(404).json({ error: 'Transaction not found or already processed' });
+        return;
     }
 
-    console.log('All validations passed, creating NFT data...');
+    startMinting(transaction.id).catch(console.error);
 
-    // 构建NFT数据 - 使用内存中的文件数据
-    const nftData = {
-      name,
-      symbol,
-      description,
-      videoBuffer: videoFile.buffer, // 使用内存中的 buffer
-      creatorAddress,
-      royalty: royalty ? parseInt(royalty, 10) : 0, // 默认0%
-    };
+    res.json({ success: true, message: 'Video received, minting process started.' });
 
-    console.log('NFT data prepared, calling createTransaction...');
-
-    // 创建交易
-    const result = await createTransaction(nftData, creatorAddress);
-
-    console.log('Transaction created successfully:', result);
-
-    res.json({
-      success: true,
-      data: {
-        transactionId: result.transactionId,
-        qrCodeDataUrl: result.qrCodeDataUrl,
-        backendWalletAddress: result.backendWalletAddress,
-        amount: result.amount,
-        expiresAt: result.expiresAt
-      }
-    });
   } catch (error) {
-    console.error('Error creating transaction:', error);
-    console.error('Error details:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined
-    });
-    
-    res.status(500).json({
-      error: 'Failed to create transaction',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error('Error updating transaction with video:', error);
+    res.status(500).json({ error: 'Failed to update transaction', message: (error as Error).message });
   }
 });
 
@@ -145,6 +128,24 @@ router.use((error: any, req: express.Request, res: express.Response, next: expre
   } else {
     next();
   }
+});
+
+/**
+ * GET /api/transactions/:transactionId/status
+ * 检查交易状态
+ */
+/**
+ * GET /api/transactions/:transactionId
+ * 获取交易详情
+ */
+router.get('/:transactionId', (req, res) => {
+    const { transactionId } = req.params;
+    const transaction = getTransactionDetails(transactionId);
+    if (transaction) {
+        res.json(transaction);
+    } else {
+        res.status(404).json({ error: 'Transaction not found' });
+    }
 });
 
 /**

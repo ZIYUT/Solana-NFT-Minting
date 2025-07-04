@@ -20,16 +20,20 @@ interface PaymentVerificationResult {
     timestamp?: number;
 }
 
-export const verifyPayment = async (params: PaymentVerificationParams): Promise<PaymentVerificationResult> => {
-    const { fromAddress, toAddress, expectedAmount, timeWindowMinutes = 10 } = params;
+export const verifyPayment = async (params: PaymentVerificationParams & { createdAt?: number }): Promise<PaymentVerificationResult> => {
+    const { fromAddress, toAddress, expectedAmount, timeWindowMinutes = 10, createdAt } = params;
     
     try {
         const fromPublicKey = new PublicKey(fromAddress);
         const toPublicKey = new PublicKey(toAddress);
         
-        // Calculate time window (default 10 minutes ago)
-        const timeWindowMs = timeWindowMinutes * 60 * 1000;
-        const earliestTime = Date.now() - timeWindowMs;
+        // Calculate time window
+        let earliestTime;
+        if (createdAt) {
+            earliestTime = createdAt;
+        } else {
+            earliestTime = Date.now() - timeWindowMinutes * 60 * 1000;
+        }
         
         console.log(`Verifying payment from ${fromAddress} to ${toAddress}`);
         console.log(`Expected amount: ${expectedAmount} SOL`);
